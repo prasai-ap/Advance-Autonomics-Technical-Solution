@@ -87,3 +87,28 @@ def test_claim_validation(client, auth_headers) -> None:
     ):
         assert client.post("/claims", json=payload, headers=auth_headers["emp1"]).status_code == 422
     assert client.get("/claims/0", headers=auth_headers["emp1"]).status_code == 422
+
+
+def test_manager_rejects_direct_report_and_admin_updates_any_pending(
+    client, auth_headers, claims
+) -> None:
+    rejected = client.patch(
+        f"/claims/{claims['emp2'].id}/status",
+        json={"status": "REJECTED"},
+        headers=auth_headers["manager"],
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["status"] == "REJECTED"
+    approved = client.patch(
+        f"/claims/{claims['emp3'].id}/status",
+        json={"status": "APPROVED"},
+        headers=auth_headers["admin"],
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "APPROVED"
+
+
+def test_managers_and_admins_cannot_create_claims(client, auth_headers) -> None:
+    payload = {"title": "not allowed", "amount": "1.00"}
+    assert client.post("/claims", json=payload, headers=auth_headers["manager"]).status_code == 403
+    assert client.post("/claims", json=payload, headers=auth_headers["admin"]).status_code == 403

@@ -83,6 +83,10 @@ def test_sixth_failed_login_is_limited_and_success_clears(client: TestClient, us
     sixth = client.post("/auth/login", json={"email": "emp1@test.com", "password": "wrong"})
     assert sixth.status_code == 429
     assert "Retry-After" in sixth.headers
+    assert (
+        client.post("/auth/login", json={"email": "emp1@test.com", "password": "wrong"}).status_code
+        == 429
+    )
 
 
 def test_success_clears_failures(client: TestClient, users) -> None:
@@ -98,3 +102,34 @@ def test_success_clears_failures(client: TestClient, users) -> None:
         client.post("/auth/login", json={"email": "emp1@test.com", "password": "wrong"}).status_code
         == 401
     )
+
+
+def test_failure_limits_are_separate_by_observed_ip(db: Session, users) -> None:
+    from app.api.auth import login_limiter
+    from app.db.database import get_db
+    from app.main import create_app
+
+    app = create_app(initialize_on_startup=False)
+
+    def override_db():
+        yield db
+
+    app.dependency_overrides[get_db] = override_db
+    login_limiter.reset()
+    with TestClient(app, client=("one.test", 50000)) as first:
+        for _ in range(5):
+            first.post("/auth/login", json={"email": "none@test.com", "password": "wrong"})
+        assert (
+            first.post(
+                "/auth/login", json={"email": "none@test.com", "password": "wrong"}
+            ).status_code
+            == 429
+        )
+    with TestClient(app, client=("two.test", 50000)) as second:
+        assert (
+            second.post(
+                "/auth/login", json={"email": "none@test.com", "password": "wrong"}
+            ).status_code
+            == 401
+        )
+    login_limiter.reset()
